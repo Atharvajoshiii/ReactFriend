@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { StepsList } from '../components/StepsList';
 import { FileExplorer } from '../components/FileExplorer';
 import { TabView } from '../components/TabView';
@@ -24,7 +24,8 @@ export default Component;`;
 
 export function Builder() {
   const location = useLocation();
-  const { prompt } = location.state as { prompt: string };
+  const navigate = useNavigate();
+  const locationState = location.state as { prompt: string } | null;
   const [userPrompt, setPrompt] = useState("");
   const [llmMessages, setLlmMessages] = useState<{role: "user" | "assistant", content: string;}[]>([]);
   const [loading, setLoading] = useState(false);
@@ -36,8 +37,18 @@ export function Builder() {
   const [selectedFile, setSelectedFile] = useState<FileItem | null>(null);
   
   const [steps, setSteps] = useState<Step[]>([]);
-
   const [files, setFiles] = useState<FileItem[]>([]);
+  const [prompt, setInitialPrompt] = useState<string>("");
+
+  // Handle direct navigation or refresh
+  useEffect(() => {
+    if (!locationState?.prompt) {
+      // If user directly navigated to this page without state, redirect to home
+      navigate('/');
+    } else {
+      setInitialPrompt(locationState.prompt);
+    }
+  }, [locationState, navigate]);
 
   useEffect(() => {
     // Build the file tree from all CreateFile steps
@@ -136,44 +147,52 @@ export function Builder() {
   }, [files, webcontainer]);
 
   async function init() {
-    const response = await axios.post(`${BACKEND_URL}/template`, {
-      prompt: prompt.trim()
-    });
-    setTemplateSet(true);
+    if (!prompt) return;
     
-    const {prompts, uiPrompts} = response.data;
+    try {
+      const response = await axios.post(`${BACKEND_URL}/template`, {
+        prompt: prompt.trim()
+      });
+      setTemplateSet(true);
+      
+      const {prompts, uiPrompts} = response.data;
 
-    setSteps(parseXml(uiPrompts[0]).map((x: Step) => ({
-      ...x,
-      status: "pending"
-    })));
+      setSteps(parseXml(uiPrompts[0]).map((x: Step) => ({
+        ...x,
+        status: "pending"
+      })));
 
-    setLoading(true);
-    const stepsResponse = await axios.post(`${BACKEND_URL}/chat`, {
-      messages: [...prompts, prompt].map(content => ({
+      setLoading(true);
+      const stepsResponse = await axios.post(`${BACKEND_URL}/chat`, {
+        messages: [...prompts, prompt].map(content => ({
+          role: "user",
+          content
+        }))
+      });
+
+      setLoading(false);
+
+      setSteps(s => [...s, ...parseXml(stepsResponse.data.response).map(x => ({
+        ...x,
+        status: "pending" as "pending"
+      }))]);
+
+      setLlmMessages([...prompts, prompt].map(content => ({
         role: "user",
         content
-      }))
-    })
+      })));
 
-    setLoading(false);
-
-    setSteps(s => [...s, ...parseXml(stepsResponse.data.response).map(x => ({
-      ...x,
-      status: "pending" as "pending"
-    }))]);
-
-    setLlmMessages([...prompts, prompt].map(content => ({
-      role: "user",
-      content
-    })));
-
-    setLlmMessages(x => [...x, {role: "assistant", content: stepsResponse.data.response}])
+      setLlmMessages(x => [...x, {role: "assistant", content: stepsResponse.data.response}])
+    } catch (error) {
+      console.error("Error initializing builder:", error);
+      setLoading(false);
+      // Show a user-friendly error message if needed
+    }
   }
 
   useEffect(() => {
     init();
-  }, [])
+  }, [prompt])
 
   return (
     <div className="min-h-screen bg-black flex flex-col">
