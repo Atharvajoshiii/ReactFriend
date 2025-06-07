@@ -199,7 +199,7 @@ function HeroGeometric({
                         initial="hidden"
                         animate="visible"
                     >
-                        <Button>
+                        <Button onClick={() => window.location.href = "/home"} className="bg-gradient-to-r from-indigo-500 to-rose-500 text-white hover:from-indigo-600 hover:to-rose-600 transition-colors duration-300">
                             get Started
                         </Button>
                     </motion.div>

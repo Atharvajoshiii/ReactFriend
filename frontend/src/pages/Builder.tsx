@@ -40,68 +40,53 @@ export function Builder() {
   const [files, setFiles] = useState<FileItem[]>([]);
 
   useEffect(() => {
-    let originalFiles = [...files];
-    let updateHappened = false;
-    steps.filter(({status}) => status === "pending").map(step => {
-      updateHappened = true;
-      if (step?.type === StepType.CreateFile) {
-        let parsedPath = step.path?.split("/") ?? []; // ["src", "components", "App.tsx"]
-        let currentFileStructure = [...originalFiles]; // {}
-        let finalAnswerRef = currentFileStructure;
-  
-        let currentFolder = ""
-        while(parsedPath.length) {
-          currentFolder =  `${currentFolder}/${parsedPath[0]}`;
-          let currentFolderName = parsedPath[0];
-          parsedPath = parsedPath.slice(1);
-  
-          if (!parsedPath.length) {
-            // final file
-            let file = currentFileStructure.find(x => x.path === currentFolder)
-            if (!file) {
-              currentFileStructure.push({
-                name: currentFolderName,
-                type: 'file',
-                path: currentFolder,
-                content: step.code
-              })
+    // Build the file tree from all CreateFile steps
+    const buildFileTree = (steps: Step[]): FileItem[] => {
+      const root: FileItem[] = [];
+      for (const step of steps) {
+        if (step.type === StepType.CreateFile && step.path) {
+          let parsedPath = step.path.split("/");
+          let current = root;
+          let currentFolder = "";
+          while (parsedPath.length) {
+            const currentFolderName = parsedPath[0];
+            currentFolder = `${currentFolder}/${currentFolderName}`;
+            parsedPath = parsedPath.slice(1);
+            if (!parsedPath.length) {
+              // Final file
+              let file = current.find(x => x.path === currentFolder);
+              if (!file) {
+                current.push({
+                  name: currentFolderName,
+                  type: 'file',
+                  path: currentFolder,
+                  content: step.code
+                });
+              } else {
+                file.content = step.code;
+              }
             } else {
-              file.content = step.code;
+              // Folder
+              let folder = current.find(x => x.path === currentFolder);
+              if (!folder) {
+                folder = {
+                  name: currentFolderName,
+                  type: 'folder',
+                  path: currentFolder,
+                  children: []
+                };
+                current.push(folder);
+              }
+              current = folder.children!;
             }
-          } else {
-            /// in a folder
-            let folder = currentFileStructure.find(x => x.path === currentFolder)
-            if (!folder) {
-              // create the folder
-              currentFileStructure.push({
-                name: currentFolderName,
-                type: 'folder',
-                path: currentFolder,
-                children: []
-              })
-            }
-  
-            currentFileStructure = currentFileStructure.find(x => x.path === currentFolder)!.children!;
           }
         }
-        originalFiles = finalAnswerRef;
       }
-
-    })
-
-    if (updateHappened) {
-
-      setFiles(originalFiles)
-      setSteps(steps => steps.map((s: Step) => {
-        return {
-          ...s,
-          status: "completed"
-        }
-        
-      }))
-    }
-    console.log(files);
-  }, [steps, files]);
+      return root;
+    };
+    const newFiles = buildFileTree(steps);
+    setFiles(newFiles);
+  }, [steps]);
 
   useEffect(() => {
     const createMountStructure = (files: FileItem[]): Record<string, any> => {
@@ -191,69 +176,85 @@ export function Builder() {
   }, [])
 
   return (
-    <div className="min-h-screen bg-gray-900 flex flex-col">
-      <header className="bg-gray-800 border-b border-gray-700 px-6 py-4">
-        <h1 className="text-xl font-semibold text-gray-100">Website Builder</h1>
-        <p className="text-sm text-gray-400 mt-1">Prompt: {prompt}</p>
+    <div className="min-h-screen bg-black flex flex-col">
+      <header className="bg-black border-b border-zinc-800 px-6 py-4 shadow-sm">
+        <h1 className="text-xl font-semibold text-white">Website Builder</h1>
+        <p className="text-sm text-zinc-300 mt-1 font-light">Prompt: {prompt}</p>
       </header>
       
       <div className="flex-1 overflow-hidden">
-        <div className="h-full grid grid-cols-4 gap-6 p-6">
-          <div className="col-span-1 space-y-6 overflow-auto">
+        <div className="h-full grid grid-cols-4 gap-4 p-4">
+          <div className="col-span-1 space-y-4 overflow-auto">
             <div>
-              <div className="max-h-[75vh] overflow-scroll">
+              <div className="max-h-[75vh] overflow-scroll border border-zinc-800 rounded-lg bg-black">
                 <StepsList
                   steps={steps}
                   currentStep={currentStep}
                   onStepClick={setCurrentStep}
                 />
               </div>
-              <div>
-                <div className='flex'>
+              <div className="mt-4">
+                <div className='w-full'>
                   <br />
-                  {(loading || !templateSet) && <Loader />}
-                  {!(loading || !templateSet) && <div className='flex'>
-                    <textarea value={userPrompt} onChange={(e) => {
-                    setPrompt(e.target.value)
-                  }} className='p-2 w-full'></textarea>
-                  <button onClick={async () => {
-                    const newMessage = {
-                      role: "user" as "user",
-                      content: userPrompt
-                    };
+                  {(loading || !templateSet) && <div className="flex justify-center"><Loader /></div>}
+                  {!(loading || !templateSet) && <div className='flex flex-col space-y-2'>
+                    <textarea 
+                      value={userPrompt} 
+                      onChange={(e) => setPrompt(e.target.value)} 
+                      className='p-3 w-full border border-zinc-700 rounded-md bg-black text-white focus:outline-none focus:ring-1 focus:ring-zinc-600 transition-all'
+                      placeholder="Type your prompt here..."
+                      rows={3}
+                    />
+                    <button 
+                      onClick={async () => {
+                        const newMessage = {
+                          role: "user" as "user",
+                          content: userPrompt
+                        };
 
-                    setLoading(true);
-                    const stepsResponse = await axios.post(`${BACKEND_URL}/chat`, {
-                      messages: [...llmMessages, newMessage]
-                    });
-                    setLoading(false);
+                        setLoading(true);
+                        const stepsResponse = await axios.post(`${BACKEND_URL}/chat`, {
+                          messages: [...llmMessages, newMessage]
+                        });
+                        setLoading(false);
 
-                    setLlmMessages(x => [...x, newMessage]);
-                    setLlmMessages(x => [...x, {
-                      role: "assistant",
-                      content: stepsResponse.data.response
-                    }]);
-                    
-                    setSteps(s => [...s, ...parseXml(stepsResponse.data.response).map(x => ({
-                      ...x,
-                      status: "pending" as "pending"
-                    }))]);
-
-                  }} className='bg-purple-400 px-4'>Send</button>
+                        setLlmMessages(x => [...x, newMessage]);
+                        setLlmMessages(x => [...x, {
+                          role: "assistant",
+                          content: stepsResponse.data.response
+                        }]);
+                        
+                        setSteps(s => [...s, ...parseXml(stepsResponse.data.response).map(x => ({
+                          ...x,
+                          status: "pending" as "pending"
+                        }))]);
+                        
+                        // Clear the prompt after sending
+                        setPrompt("");
+                      }} 
+                      className='px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white font-medium rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-zinc-600'
+                    >
+                      Send
+                    </button>
                   </div>}
                 </div>
               </div>
             </div>
           </div>
           <div className="col-span-1">
+            <div className="border border-zinc-800 rounded-lg bg-black h-full overflow-auto">
+              <div className="p-3 border-b border-zinc-800">
+                <h2 className="text-sm font-medium text-white">Files</h2>
+              </div>
               <FileExplorer 
                 files={files} 
                 onFileSelect={setSelectedFile}
               />
             </div>
-          <div className="col-span-2 bg-gray-900 rounded-lg shadow-lg p-4 h-[calc(100vh-8rem)]">
+          </div>
+          <div className="col-span-2 bg-black border border-zinc-800 rounded-lg shadow-sm h-[calc(100vh-8rem)]">
             <TabView activeTab={activeTab} onTabChange={setActiveTab} />
-            <div className="h-[calc(100%-4rem)]">
+            <div className="h-[calc(100%-3rem)] border-t border-zinc-800">
               {activeTab === 'code' ? (
                 <CodeEditor file={selectedFile} />
               ) : (
